@@ -14,10 +14,12 @@ register_matplotlib_converters()
 #%matplotlib inline
 
 import plotly.express as px
+import plotly.io as pio
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 plt.rcParams['figure.figsize'] = [15, 5]
+pio.templates.default = "plotly_white"
 
 from IPython import display
 from ipywidgets import interact, widgets
@@ -122,7 +124,7 @@ country_consolidated = pd.merge(country_consolidated,newrecoveries_country,how='
 In the following some additional calculated fields are added. In particular:
 
 $$
-active\_cases = confirmed - recoveries - deaths
+\textit{active_cases} = \textit{confirmed} - \textit{recoveries} - \textit{deaths}
 $$
 
 
@@ -208,7 +210,7 @@ fig = go.Figure(data=go.Choropleth(
     locations = df_countries['Country/Region'],
     locationmode = 'country names',
     z = np.log10(df_countries['Total Confirmed Cases']),
-    colorscale = 'Bluered',
+    colorscale = 'Reds',
     marker_line_color = 'black',
     marker_line_width = 0.5,
 ))
@@ -229,14 +231,12 @@ In the following, we dig deeper into the top twenty countries.
 ```python
 tot_country = country_consolidated.max(level=0)['Total Confirmed Cases'].reset_index().set_index('Country/Region')
 tot_country = tot_country.sort_values(by='Total Confirmed Cases',ascending=False)
-tot_country_excl_china = tot_country[~tot_country.index.isin(['China','Others'])]
-top20_excl_china = tot_country_excl_china.head(20)
 tot_country_top20 = tot_country.head(20)
 ```
 
 
 ```python
-fig = go.Figure(go.Bar(x=tot_country_top20.index, y=top20_excl_china['Total Confirmed Cases'],
+fig = go.Figure(go.Bar(x=tot_country_top20.index, y=tot_country_top20['Total Confirmed Cases'],
                       text=tot_country_top20['Total Confirmed Cases'],
             textposition='outside'))
 fig.update_layout(title_text='Top 20 Countries by Total Confirmed Cases Excluding China')
@@ -271,7 +271,7 @@ fig.show()
 
 ## Italy
 
-Now, let's see how the cases have grown over time.
+Now, let's see how the cases have grown over time in Italy.
 
 
 ```python
@@ -313,7 +313,7 @@ def logistic(x, a, b, c):
 x = italy_growth.index
 y = italy_growth['Total Confirmed Cases']
 
-popt, pcov = curve_fit(logistic, x, y, p0=(1, 1e-6, 1))
+popt, pcov = curve_fit(logistic, x, y) #, p0=(1, 1e-6, 1))
 
 # xx = italy_growth.index
 xx = np.arange(200)
@@ -337,7 +337,7 @@ errors
 
 Considering the errors above:
 
-- The expected **number of infected people** at infection end is $127168 \pm 1860$.
+- The expected **number of infected people** at infection end is $205566 \pm 2038$.
 - The **infection peak** is expected around **april 20**
 - The **expected infection end** can be calculated as that particular day at which the cumulative infected people count is equal to the $c$ parameter rounded to the nearest integer.
 
@@ -415,7 +415,11 @@ fig.update_layout(title_text='Daily Growth')
 fig.show()
 ```
 
-The following chart illustrates how the cases are closed with recoveries.
+The following chart illustrates how the cases are closed with recoveries. In other words, it represents the perentage of cases of infections for which the outcome is positive over the total:
+
+$$
+\textit{Share of Recoveries - closed cases} = \frac{\textit{Recoveries}}{\textit{Recoveries} + \textit{Deaths}}
+$$
 
 
 ```python
@@ -430,7 +434,7 @@ fig.show()
 
 ## Analysis of Italy's cases by province
 
-Italy's Civil Protection Department collects detailed about the virus, coming from the entire geographic territory. The data are organized according to regions and provinces. In the following, some further details regarding the different provinces are analyzed according to the same approach conducted so far.
+Italy's Civil Protection Department collects detailed data about the pandemic, coming from the entire geographic territory. The data are organized according to regions and provinces. In the following, some further details regarding the different provinces are analyzed according to the same approach conducted so far. The source can be found at this [link](https://github.com/pcm-dpc/COVID-19).
 
 
 ```python
@@ -452,7 +456,7 @@ dpc_province_raw.head(10)
 - **long**: Longitude of a reference point inside the province's territory.
 - **totale_casi**: Number of cases.
 
-The following code is used to clean the re-organize the data.
+The following code is used to clean and re-organize the data.
 
 
 ```python
@@ -513,9 +517,9 @@ fig.update_yaxes(showticklabels=False)
 fig.show()
 ```
 
-## Swabs
+## Swab Testing
 
-We use a different file to get more insights on the whole national trend, e.g. the number of swabs vs the total number of positive cases.
+We use a different file to get more insights on the whole national trend, e.g. the number of swabs tested vs the total number of positive cases.
 
 
 ```python
@@ -553,9 +557,53 @@ fig.show()
 
 ## Italy regions
 
+In the following, I'm creating a new dataframe grouping data by regions and resampling by weeks.
+
 
 ```python
-dpc_regions = dpc_province_raw.groupby(['data','codice_regione']).sum().reset_index()
-dpc_regions = dpc_regions.drop_duplicates(subset = ['codice_regione'])
-dpc_regions.head(10)
+dpc_regions = pd.read_csv('https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-regioni/dpc-covid19-ita-regioni.csv')
+dpc_regions['data'] = pd.to_datetime(dpc_regions['data'])
+dpc_regions = dpc_regions.groupby(['denominazione_regione', pd.Grouper(key='data', freq='W-MON')])['totale_positivi'].last().reset_index().sort_values('data')
+dpc_regions = dpc_regions.rename(columns={'denominazione_regione':'regione'})
+dpc_regions["data"] = dpc_regions["data"].dt.strftime("%y-%m-%d")
+
+dpc_regions.tail(20)
+
 ```
+
+
+```python
+from urllib.request import urlopen
+import json
+with urlopen('https://gist.githubusercontent.com/datajournalism-it/48e29e7c87dca7eb1d29/raw/2636aeef92ba0770a073424853f37690064eb0ea/regioni.geojson') as response:
+    regions_geojson = json.load(response)
+
+regions_geojson["features"][0].keys()
+```
+
+
+```python
+fig = px.choropleth(dpc_regions, geojson=regions_geojson, 
+                           locations='regione',
+                           featureidkey='properties.NOME_REG',
+                           animation_frame='data',
+                           projection="mercator",
+                           color='totale_positivi',
+                           color_continuous_scale="Reds",
+                           range_color=(0, 30000),
+                           labels={'totale_positivi':'Total cases'},
+                          )
+
+fig.update_geos(fitbounds="locations", visible=False)
+fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+fig.show()
+```
+
+## References
+
+- [https://towardsdatascience.com/visualizing-the-coronavirus-pandemic-with-choropleth-maps-7f30fccaecf5](https://towardsdatascience.com/visualizing-the-coronavirus-pandemic-with-choropleth-maps-7f30fccaecf5)
+- [https://medium.com/@justintodata/what-is-the-coronavirus-death-rate-with-hyperparameter-tuning-315235a4444c](https://medium.com/@justintodata/what-is-the-coronavirus-death-rate-with-hyperparameter-tuning-315235a4444c)
+- [https://towardsdatascience.com/covid-19-infection-in-italy-mathematical-models-and-predictions-7784b4d7dd8d](https://towardsdatascience.com/covid-19-infection-in-italy-mathematical-models-and-predictions-7784b4d7dd8d)
+- [https://towardsdatascience.com/cord-19-the-data-science-response-to-covid-19-46d57ab811f3](https://towardsdatascience.com/cord-19-the-data-science-response-to-covid-19-46d57ab811f3)
+- [https://towardsdatascience.com/gather-all-the-coronavirus-data-with-python-19aa22167dea](https://towardsdatascience.com/gather-all-the-coronavirus-data-with-python-19aa22167dea)
+- [https://towardsdatascience.com/analyzing-coronavirus-covid-19-data-using-pandas-and-plotly-2e34fe2c4edc](https://towardsdatascience.com/analyzing-coronavirus-covid-19-data-using-pandas-and-plotly-2e34fe2c4edc)
